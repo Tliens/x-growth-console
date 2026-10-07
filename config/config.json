@@ -1,0 +1,26 @@
+{
+  "llm": "yuanbao",
+  "port": 7788,
+  "cdpUrl": "http://localhost:9222",
+  "budgets": {
+    "dailyLikes": 30,
+    "dailyFollows": 12,
+    "repliesPerBatch": 15
+  },
+  "intervals": {
+    "reply": [60000, 360000],
+    "like": [40000, 200000],
+    "follow": [240000, 600000]
+  },
+  "likeChance": 0.7,
+  "discovery": {
+    "keywords": [
+      { "kw": "独立开发", "lang": "zh" },
+      { "kw": "独立开发者", "lang": "zh" },
+      { "kw": "build in public", "lang": "en" },
+      { "kw": "出海", "lang": "zh" },
+      { "kw": "AI 工具", "lang": "zh" },
+      { "kw": "vibe coding", "lang": "en" }
+    ]
+  }
+}

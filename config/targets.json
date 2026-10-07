@@ -1,0 +1,9 @@
+{
+  "targets": [
+    { "handle": "levelsio",      "note": "indie hacking 代表人物", "lang": "en" },
+    { "handle": "marc_louvion",  "note": "ship fast 流代表", "lang": "en" },
+    { "handle": "rauchg",        "note": "Vercel CEO，Next.js 作者", "lang": "en" },
+    { "handle": "idoubi",        "note": "艾逗笔，ThinkAny 作者", "lang": "zh" },
+    { "handle": "ViggoZ",        "note": "独立开发 / 工具站", "lang": "zh" }
+  ]
+}

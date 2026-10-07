@@ -1,0 +1,19 @@
+{
+  "name": "x-growth-console",
+  "version": "1.0.0",
+  "description": "X 半自动互动中控台：雷达找机会 → LLM 起草 → 人工审核 → 拟人发送",
+  "type": "module",
+  "scripts": {
+    "setup": "bash setup.sh",
+    "dashboard": "node src/server.mjs",
+    "scan": "node src/radar.mjs scan",
+    "report": "node src/radar.mjs report",
+    "discover": "node src/discover.mjs",
+    "prepare": "node src/autoreply.mjs --prepare all",
+    "send": "node src/autoreply.mjs --send",
+    "engage": "node src/engage.mjs --auto"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}
