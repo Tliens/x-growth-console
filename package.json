@@ -13,7 +13,8 @@
     "send": "node src/autoreply.mjs --send",
     "engage": "node src/engage.mjs --auto",
     "grow": "node src/growfollow.mjs --auto",
-    "grow-plan": "node src/growfollow.mjs --plan"
+    "grow-plan": "node src/growfollow.mjs --plan",
+    "followback": "node src/followback.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.63.0"

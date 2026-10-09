@@ -18,6 +18,7 @@
 | 引用/转推 | `node src/amplify.mjs --quote-draft <url>` / `--rt <url>` | 引用语起草后发送；转推直接执行 |
 | 点赞+关注 | `node src/engage.mjs --auto` | 按日限额自动点赞、关注（带简介相关性闸） |
 | 互粉循环 | `node src/growfollow.mjs --auto` | 刷首页时间线捞互粉帖 → 话术池评论 → 关注发帖人和评论区活跃者（`--plan` 先看计划） |
+| 回关循环 | `node src/followback.mjs` | 每 10 分钟检查粉丝列表，回关新关注者（2–10s 连点节奏，全局 380/天熔断） |
 
 ## 快速开始
 
