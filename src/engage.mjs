@@ -2,6 +2,7 @@
 // 用法: node tools/engage.mjs --auto
 // 限额写死在代码里：新号阶段 点赞≤30/天 关注≤12/天，想调改这里
 import { connect } from './bridge.mjs';
+import { inQuietHours, msUntilMorning } from './quiet-hours.mjs';
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 
 const OPP_FILE = 'data/opportunities.json';
