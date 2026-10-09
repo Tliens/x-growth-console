@@ -11,7 +11,9 @@
     "discover": "node src/discover.mjs",
     "prepare": "node src/autoreply.mjs --prepare all",
     "send": "node src/autoreply.mjs --send",
-    "engage": "node src/engage.mjs --auto"
+    "engage": "node src/engage.mjs --auto",
+    "grow": "node src/growfollow.mjs --auto",
+    "grow-plan": "node src/growfollow.mjs --plan"
   },
   "dependencies": {
     "playwright-core": "^1.63.0"
