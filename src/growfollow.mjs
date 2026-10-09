@@ -10,6 +10,7 @@
 //   - 日预算：评论 40 / 互粉关注 30（想激进自己改，量级越大风险越高）
 import { connect } from './bridge.mjs';
 import { sendReply } from './x-send.mjs';
+import { inQuietHours, msUntilMorning } from './quiet-hours.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const ENGAGE_FILE = 'data/engagement.json';
@@ -205,6 +206,7 @@ async function main() {
 
   let comments = 0, follows = 0;
   for (const [i, action] of queue.entries()) {
+    if (inQuietHours()) { console.log(`🌙 夜间静默（21:00–06:00），保存进度退出；已发评论 ${comments}、关注 ${follows}，明早重跑自动续`); break; }
     if (comments >= DAILY_COMMENTS && follows >= DAILY_FOLLOWS) break;
 
     // 1. 评论互粉帖

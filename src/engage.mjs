@@ -3,19 +3,13 @@
 // 限额写死在代码里：新号阶段 点赞≤30/天 关注≤12/天，想调改这里
 import { connect } from './bridge.mjs';
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
-import { config } from './config.mjs';
-import { persona } from './persona.mjs';
 
 const OPP_FILE = 'data/opportunities.json';
 const ENGAGE_FILE = 'data/engagement.json';
 const XHOT_DIR = 'data/xhot';
-const DAILY_LIKES = config.budgets.dailyLikes;
-const DAILY_FOLLOWS = config.budgets.dailyFollows;
-// 自己的号 + 目标库里的号不作为关注候选
-const SEEDS = new Set([
-  persona.identity.handle,
-  ...(existsSync('config/targets.json') ? JSON.parse(readFileSync('config/targets.json', 'utf8')).targets.map((t) => t.handle) : []),
-].map((h) => (h || '').toLowerCase()));
+const DAILY_LIKES = 30;
+const DAILY_FOLLOWS = 12;
+const SEEDS = new Set(['gefei55','yihui_indie','indie_maker_fox','sectojoy','isnail','bourneliu66','tualatrix','waylybaye','randyloop','levelsio','marc_louvion','kuige_me']);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const today = () => new Date().toISOString().slice(0, 10);
 const load = (f) => (existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {});
@@ -64,6 +58,11 @@ async function main() {
   let likes = 0, follows = 0;
 
   while (likes < DAILY_LIKES || follows < DAILY_FOLLOWS) {
+    if (inQuietHours()) {
+      const ms = msUntilMorning();
+      console.log(`🌙 夜间静默（21:00–06:00），${(ms / 3600000).toFixed(1)} 小时后自动恢复`);
+      await sleep(ms);
+    }
     const doLike = likes < DAILY_LIKES && likePool.length && (follows >= DAILY_FOLLOWS || Math.random() < 0.65);
     if (doLike) {
       const post = likePool.shift();
@@ -79,7 +78,7 @@ async function main() {
           console.log(`❤️ [${likes}/${DAILY_LIKES}] 赞了 @${post.handle}: ${post.text.replace(/\n/g, ' ').slice(0, 40)}`);
         }
       } catch (e) { console.log(`⚠️ 赞失败 @${post.handle}: ${String(e).slice(0, 60)}`); }
-      const [lMin, lMax] = config.intervals.like; await sleep(lMin + Math.random() * (lMax - lMin));
+      await sleep(40000 + Math.random() * 160000);
       continue;
     }
     if (follows < DAILY_FOLLOWS && followPool.length) {
@@ -108,7 +107,7 @@ async function main() {
           console.log(`⏭️ @${c.handle} 已关注或不可关，跳过`);
         }
       } catch (e) { console.log(`⚠️ 关注失败 @${c.handle}: ${String(e).slice(0, 60)}`); }
-      const [fMin, fMax] = config.intervals.follow; await sleep(fMin + Math.random() * (fMax - fMin));
+      await sleep(240000 + Math.random() * 360000); // 关注间隔 4–10 分钟
       continue;
     }
     break;

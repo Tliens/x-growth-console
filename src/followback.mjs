@@ -5,6 +5,7 @@
 //   - 全局关注熔断：当日全部关注（engage+互粉+回关）达 380 停手（X 平台硬上限 400）
 //   - 每轮最多回关 8 个，避免突发集中
 import { connect } from './bridge.mjs';
+import { inQuietHours, msUntilMorning } from './quiet-hours.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const ENGAGE_FILE = 'data/engagement.json';
@@ -89,6 +90,11 @@ async function main() {
   console.log(`回关循环启动：每 ${ROUND_MINUTES} 分钟一轮，每轮≤${PER_ROUND}，全局熔断 ${GLOBAL_DAILY_CAP}/天`);
   // 启动即跑第一轮，之后固定间隔
   while (true) {
+    if (inQuietHours()) {
+      const ms = msUntilMorning();
+      console.log(`🌙 夜间静默（21:00–06:00），${(ms / 3600000).toFixed(1)} 小时后自动恢复`);
+      await sleep(ms);
+    }
     const ts = new Date().toLocaleTimeString('zh-CN');
     try {
       const n = await round(ctx);

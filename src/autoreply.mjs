@@ -4,9 +4,9 @@
 //   node tools/autoreply.mjs --prepare [all|N]
 //   node tools/autoreply.mjs --send
 import { connect } from './bridge.mjs';
-import { askLLM } from './llm.mjs';
-import { config } from './config.mjs';
+import { askYuanbao } from './yuanbao.mjs';
 import { sendReply } from './x-send.mjs';
+import { inQuietHours } from './quiet-hours.mjs';
 import { buildPrompt, pickStyle, START_MARKER, END_MARKER } from './persona.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
@@ -35,7 +35,7 @@ async function prepare(arg) {
   for (const [i, post] of targets.entries()) {
     const style = pickStyle();
     try {
-      let draft = await askLLM(ctx, buildPrompt(post, style), START_MARKER, END_MARKER);
+      let draft = await askYuanbao(ctx, buildPrompt(post, style), START_MARKER, END_MARKER);
       draft = draft.replace(/^["“」]|\s*["”」]$/g, '').trim();
       if (!draft || draft.length > 160) throw new Error(`草稿不合格(长度${draft.length})`);
       drafts[post.url] = { ...post, url: post.url, draft, style: style.id, status: 'pending-auto', createdAt: new Date().toISOString() };
@@ -60,6 +60,7 @@ async function send() {
   console.log(`待发送 ${batch.length} 条 | 间隔 1–6 分钟 | 每条回复附带 70% 概率点赞 | ${new Date().toLocaleTimeString('zh-CN')} 开始\n`);
   let sent = 0;
   for (const [i, d] of batch.entries()) {
+    if (inQuietHours()) { console.log(`🌙 夜间静默（21:00–06:00），剩余 ${batch.length - i} 条留待明早（--send 重跑自动续）`); break; }
     try {
       const r = await sendReply(d.url, d.draft, { like: Math.random() < 0.7 });
       if (!r.ok) throw new Error(r.error || '未知失败');
@@ -72,8 +73,7 @@ async function send() {
       console.log(`[${i + 1}/${batch.length}] ❌ @${d.handle} 失败: ${String(e).slice(0, 100)}`);
     }
     if (i < batch.length - 1) {
-      const [rMin, rMax] = config.intervals.reply;
-      const wait = rMin + Math.round(Math.random() * (rMax - rMin));
+      const wait = 60000 + Math.round(Math.random() * 300000);
       console.log(`    ⏳ 下一条 ${(wait / 60000).toFixed(1)} 分钟后`);
       await sleep(wait);
     }
