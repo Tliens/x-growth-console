@@ -9,18 +9,26 @@
 //   - 关注去重基于全历史日志 + 页面按钮状态双保险；已关注自动跳过，永不取关
 //   - 日预算：评论 40 / 互粉关注 30（想激进自己改，量级越大风险越高）
 import { connect } from './bridge.mjs';
-import { persona } from './persona.mjs';
 import { sendReply } from './x-send.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const ENGAGE_FILE = 'data/engagement.json';
-const GROWTH_RE = /互粉|互关|互fo|互FO|关注必回|必回|回关|不取关|先上岸/i;
+const GROWTH_RE = /互粉|互关|互fo|互FO|关注必回|必回|回关|不取关|先上岸|交朋友|串门|一起涨粉/i;
 const DAILY_COMMENTS = 40;
 const DAILY_FOLLOWS = 360;         // 互粉关注预算。X 平台硬上限 400/天（engage 另有 12），留余量防撞限
 const REPLIES_PER_POST = 15;       // 每帖最多关注前 N 个回复者
 const PER_ACTION = [30000, 100000]; // 每个动作间隔 30–100 秒
-const OWN_HANDLE = persona.identity.handle;
+const OWN_HANDLE = 'kuige_me';
+const MAX_AGE_H = 10;              // 只捞 10 小时内的互粉帖（评论区还活着，回关快）
+const MIN_VIEWS = 1000;            // 浏览 <1k 的帖子没有围观流量，跳过
 const SCROLL_ROUNDS = 30;          // 首页滚动轮数（360 关注需要更大的帖子池）
+const MIN_POOL = 60;               // 首页捞不满这个数时，自动补搜索兜底
+const SEARCH_WORDS = ['互粉', '互关', '互fo', '互粉互关', '关注必回'];
+// 兴趣发现：擦边/18+/COS 类帖子与博主，刷首页时顺路收集，之后统一关注+点赞
+const INTEREST_RE = /写真|福利姬|nsfw|18\+|反差|美女|妹子|cosplay|coser|腿模|女优/i;
+const DAILY_INTEREST_FOLLOWS = 15;
+const DAILY_INTEREST_LIKES = 10;
+const interestFound = new Map();   // {url: {url, handle, text}}
 
 const COMMENTS = [
   '互关，必回，先上岸再说',
@@ -67,16 +75,71 @@ async function findPosts(page) {
     });
     let n = 0;
     for (const p of posts) {
-      if (!GROWTH_RE.test(p.text)) continue;
       if (p.handle.toLowerCase() === OWN_HANDLE) continue;
-      if (!out.has(p.url)) { out.set(p.url, { ...p, text: p.text.slice(0, 80) }); n++; }
+      if (INTEREST_RE.test(p.text) && !interestFound.has(p.url)) {
+        interestFound.set(p.url, { url: p.url, handle: p.handle, text: p.text.slice(0, 80) }); // 兴趣帖只收作者和链接，不筛时间
+      }
+      if (!GROWTH_RE.test(p.text)) continue;
+      if (!p.postedAt) continue;
+      const ageH = (Date.now() - new Date(p.postedAt).getTime()) / 3600000;
+      if (ageH > MAX_AGE_H) continue;                    // 发帖 <6h（浏览数时间线不渲染，在执行阶段进详情页校验）
+      if (!out.has(p.url)) { out.set(p.url, { ...p, text: p.text.slice(0, 80), ageH: Math.round(ageH * 10) / 10 }); n++; }
     }
     process.stdout.write(`第${round + 1}轮：累计互粉帖 ${out.size}（本轮+${n}）\n`);
     if (out.size >= 120) break; // 够一天的量就停
     await page.mouse.wheel(0, 1800 + Math.random() * 1200);
     await page.waitForTimeout(2200 + Math.random() * 2500);
   }
+  // 首页供给不足时补搜索兜底（live 流本身就是最新帖，同样过 <6h 过滤；浏览数在执行阶段校验）
+  if (out.size < MIN_POOL) {
+    console.log(`首页仅捞到 ${out.size} 帖，补充搜索兜底...`);
+    for (const kw of SEARCH_WORDS) {
+      await page.goto(`https://x.com/search?q=${encodeURIComponent(kw)}&f=live`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(4000 + Math.random() * 2000);
+      const posts = await page.evaluate(() => {
+        const res = [];
+        for (const a of document.querySelectorAll('article[data-testid="tweet"]')) {
+          const link = [...a.querySelectorAll('a[href*="/status/"]')][0];
+          const t = a.querySelector('[data-testid="tweetText"]');
+          const timeEl = a.querySelector('time');
+          if (!link || !t || !timeEl) continue;
+          const path = new URL(link.href, 'https://x.com').pathname;
+          res.push({ url: `https://x.com${path}`, handle: path.split('/')[1], text: t.innerText, postedAt: timeEl.getAttribute('datetime') });
+        }
+        return res;
+      });
+      let n = 0;
+      for (const p of posts) {
+        if (!GROWTH_RE.test(p.text)) continue;
+        if (p.handle.toLowerCase() === OWN_HANDLE) continue;
+        const ageH = (Date.now() - new Date(p.postedAt).getTime()) / 3600000;
+        if (ageH > MAX_AGE_H) continue;
+        if (!out.has(p.url)) { out.set(p.url, { ...p, text: p.text.slice(0, 80), ageH: Math.round(ageH * 10) / 10 }); n++; }
+      }
+      process.stdout.write(`搜索「${kw}」+${n}，累计 ${out.size}\n`);
+      if (out.size >= MIN_POOL * 1.5) break;
+      await sleep(4000 + Math.random() * 4000);
+    }
+  }
   return [...out.values()];
+}
+
+// 详情页浏览数校验：X 已不给浏览数挂 testid/aria-label，直接从页面文本提取（中英文界面兼容）
+function parseViews(text) {
+  const m = text.match(/([\d.,]+)\s*(万|[KM])?\s*(?:次浏览|views)/i);
+  if (!m) return 0;
+  const n = parseFloat(m[1].replace(/,/g, ''));
+  if (m[2] === '万') return n * 1e4;
+  if ((m[2] || '').toUpperCase() === 'K') return n * 1e3;
+  if ((m[2] || '').toUpperCase() === 'M') return n * 1e6;
+  return Math.round(n);
+}
+
+async function viewsOk(page, url) {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(3500 + Math.random() * 2500);
+  const raw = await page.evaluate(() => document.body.innerText);
+  return { views: parseViews(raw), ok: parseViews(raw) >= MIN_VIEWS };
 }
 
 // 抓帖子评论区的前 N 个回复者 handle
@@ -146,6 +209,11 @@ async function main() {
     // 1. 评论互粉帖
     if (action.type === 'comment' && comments < DAILY_COMMENTS) {
       try {
+        const v = await viewsOk(page, action.url);
+        if (!v.ok) {
+          console.log(`[${i + 1}/${queue.length}] ⏭️ @${action.handle} 浏览 ${v.views} < ${MIN_VIEWS}，整帖跳过`);
+          continue;
+        }
         const text = pickComment();
         const r = await sendReply(action.url, text, { like: Math.random() < 0.5 });
         if (!r.ok) throw new Error(r.error);
@@ -189,9 +257,48 @@ async function main() {
       }
     }
   }
+  // ===== 兴趣阶段：擦边/18+/COS 帖子点赞 + 博主关注 =====
+  state.growth.interestFollows = state.growth.interestFollows || [];
+  state.growth.interestLikes = state.growth.interestLikes || [];
+  const interestDoneF = new Set(state.growth.interestFollows);
+  const interestDoneL = new Set(state.growth.interestLikes);
+  const interestPool = shuffle([...interestFound.values()]);
+  let iFollows = 0, iLikes = 0;
+  if (interestPool.length) console.log(`\n兴趣阶段：${interestPool.length} 条候选（关注≤${DAILY_INTEREST_FOLLOWS}/赞≤${DAILY_INTEREST_LIKES}）`);
+  for (const p of interestPool) {
+    if (iFollows >= DAILY_INTEREST_FOLLOWS && iLikes >= DAILY_INTEREST_LIKES) break;
+    try {
+      await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(3500 + Math.random() * 3000);
+      if (iLikes < DAILY_INTEREST_LIKES && !interestDoneL.has(p.url)) {
+        const likeBtn = page.locator('[data-testid="like"]').first();
+        if ((await likeBtn.count()) > 0) {
+          await likeBtn.click();
+          iLikes += 1;
+          state.growth.interestLikes.push(p.url);
+          state[today()].likes.push(p.url);
+          save(ENGAGE_FILE, state);
+          console.log(`  ❤️ 赞了 @${p.handle}: ${p.text.replace(/\n/g, ' ').slice(0, 36)}`);
+        }
+      }
+      if (iFollows < DAILY_INTEREST_FOLLOWS && !interestDoneF.has(p.handle) && !doneFollows.has(p.handle) && !state.growth.follows.includes(p.handle)) {
+        if (await followOne(page, p.handle)) {
+          iFollows += 1;
+          state.growth.interestFollows.push(p.handle);
+          state.growth.follows.push(p.handle);
+          state[today()].follows.push(p.handle);
+          save(ENGAGE_FILE, state);
+          console.log(`  ➕ 关注了 @${p.handle}`);
+        }
+      }
+    } catch (e) {
+      console.log(`  ⚠️ 兴趣动作失败 @${p.handle}: ${String(e).slice(0, 60)}`);
+    }
+    await sleep(PER_ACTION[0] + Math.random() * (PER_ACTION[1] - PER_ACTION[0]));
+  }
   await page.close();
   await browser.close();
-  console.log(`\n互粉循环结束：评论 ${comments}/${DAILY_COMMENTS}，关注 ${follows}/${DAILY_FOLLOWS}`);
+  console.log(`\n互粉循环结束：评论 ${comments}/${DAILY_COMMENTS}，关注 ${follows}/${DAILY_FOLLOWS}，兴趣赞 ${iLikes}/${DAILY_INTEREST_LIKES}，兴趣关注 ${iFollows}/${DAILY_INTEREST_FOLLOWS}`);
 }
 
 main().catch((e) => { console.error('失败:', e.message); process.exit(1); });
