@@ -90,11 +90,11 @@ async function findPosts(page) {
     await page.mouse.wheel(0, 1800 + Math.random() * 1200);
     await page.waitForTimeout(2200 + Math.random() * 2500);
   }
-  // 首页供给不足时补搜索兜底（live 流本身就是最新帖，同样过 <6h 过滤；浏览数在执行阶段校验）
+  // 首页供给不足时补热门搜索兜底：1k+ 浏览的互粉帖只存在于热门流（live 流全是刚发的低浏览帖）
   if (out.size < MIN_POOL) {
-    console.log(`首页仅捞到 ${out.size} 帖，补充搜索兜底...`);
+    console.log(`首页仅捞到 ${out.size} 帖，补充热门搜索兜底...`);
     for (const kw of SEARCH_WORDS) {
-      await page.goto(`https://x.com/search?q=${encodeURIComponent(kw)}&f=live`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(`https://x.com/search?q=${encodeURIComponent(kw)}&f=top`, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(4000 + Math.random() * 2000);
       const posts = await page.evaluate(() => {
         const res = [];
@@ -124,22 +124,23 @@ async function findPosts(page) {
   return [...out.values()];
 }
 
-// 详情页浏览数校验：X 已不给浏览数挂 testid/aria-label，直接从页面文本提取（中英文界面兼容）
-function parseViews(text) {
-  const m = text.match(/([\d.,]+)\s*(万|[KM])?\s*(?:次浏览|views)/i);
-  if (!m) return 0;
-  const n = parseFloat(m[1].replace(/,/g, ''));
-  if (m[2] === '万') return n * 1e4;
-  if ((m[2] || '').toUpperCase() === 'K') return n * 1e3;
-  if ((m[2] || '').toUpperCase() === 'M') return n * 1e6;
-  return Math.round(n);
-}
-
+// 详情页浏览数校验：浏览计数渲染慢且挂在指向 analytics 页的链接上（文本如 "3\n Views"），轮询等待
 async function viewsOk(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(3500 + Math.random() * 2500);
-  const raw = await page.evaluate(() => document.body.innerText);
-  return { views: parseViews(raw), ok: parseViews(raw) >= MIN_VIEWS };
+  for (let i = 0; i < 4; i++) {
+    await page.waitForTimeout(2500 + Math.random() * 1500);
+    const v = await page.evaluate(() => {
+      const a = document.querySelector('a[href*="/analytics"]');
+      if (!a) return null;
+      const m = (a.innerText || '').trim().replace(/,/g, '').match(/([\d.]+)\s*(万|[KM])?/i);
+      if (!m) return null;
+      const n = parseFloat(m[1]);
+      const u = (m[2] || '').toUpperCase();
+      return n * (m[2] === '万' ? 1e4 : u === 'K' ? 1e3 : u === 'M' ? 1e6 : 1);
+    });
+    if (v !== null) return { views: Math.round(v), ok: Math.round(v) >= MIN_VIEWS };
+  }
+  return { views: 0, ok: false }; // 一直没渲染出来，按不达标处理
 }
 
 // 抓帖子评论区的前 N 个回复者 handle
