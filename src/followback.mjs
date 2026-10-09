@@ -5,12 +5,11 @@
 //   - 全局关注熔断：当日全部关注（engage+互粉+回关）达 380 停手（X 平台硬上限 400）
 //   - 每轮最多回关 8 个，避免突发集中
 import { connect } from './bridge.mjs';
-import { persona } from './persona.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const ENGAGE_FILE = 'data/engagement.json';
 const FB_FILE = 'data/followback.json';
-const FOLLOWERS_URL = `https://x.com/${persona.identity.handle}/verified_followers`;
+const FOLLOWERS_URL = 'https://x.com/kuige_me/verified_followers';
 const GLOBAL_DAILY_CAP = 380;   // 当日全渠道关注总量熔断线
 const PER_ROUND = 8;            // 每轮最多回关数
 const ROUND_MINUTES = 10;
@@ -47,25 +46,25 @@ async function round(ctx) {
       await page.waitForTimeout(1500);
     }
     // 列表页内直接找未回关者（Follow 按钮），点击后按钮变 Following
-    const targets = await page.evaluate((cap) => {
+    const targets = await page.evaluate(({ cap, me }) => {
       const out = [];
-      for (const cell of document.querySelectorAll('div[data-testid="UserCell"]')) {
-        const link = cell.querySelector('a[href^="/"]');
+      for (const cell of document.querySelectorAll('div[data-testid="cellInnerDiv"]')) {
         const btn = cell.querySelector('button[data-testid$="-follow"]');
-        if (link && btn) {
+        const link = cell.querySelector('a[href^="/"]');
+        if (btn && link) {
           const handle = new URL(link.href, 'https://x.com').pathname.split('/')[1];
-          if (handle.toLowerCase() !== persona.identity.handle.toLowerCase()) out.push(handle);
+          if (handle && handle.toLowerCase() !== me) out.push(handle);
         }
         if (out.length >= cap) break;
       }
       return out;
-    }, Math.min(PER_ROUND, GLOBAL_DAILY_CAP - total));
+    }, { cap: Math.min(PER_ROUND, GLOBAL_DAILY_CAP - total), me: OWN_HANDLE.toLowerCase() });
 
     for (const handle of targets) {
       if (done >= PER_ROUND || total + done >= GLOBAL_DAILY_CAP) break;
       try {
         // 逐个重查该 cell 的按钮（列表随点击会重渲染，位置会变）
-        const btn = page.locator(`div[data-testid="UserCell"]:has(a[href="/${handle}"]) button[data-testid$="-follow"]`).first();
+        const btn = page.locator(`div[data-testid="cellInnerDiv"]:has(a[href="/${handle}"]) button[data-testid$="-follow"]`).first();
         if ((await btn.count()) === 0) continue; // 已回关（按钮已是 Following）
         await btn.click();
         done += 1;
