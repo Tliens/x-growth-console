@@ -42,7 +42,30 @@ const TAILS = ['', ' 🙏', ' 🤝', ' 💪', '~', '！'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const today = () => new Date().toISOString().slice(0, 10);
 const load = (f) => (existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {});
-const save = (f, d) => writeFileSync(f, JSON.stringify(d, null, 2));
+const save = (f, d) => {
+  // 合并写：先读磁盘最新状态，数组按 key 去重合并，防止并发进程互相覆盖
+  let merged = d;
+  try {
+    const latest = existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {};
+    merged = { ...latest };
+    for (const [k, v] of Object.entries(d)) {
+      if (k === 'growth' && typeof v === 'object' && !Array.isArray(v)) {
+        merged.growth = merged.growth || {};
+        for (const [gk, gv] of Object.entries(v)) {
+          merged.growth[gk] = Array.isArray(gv)
+            ? Array.from(new Set([...(merged.growth[gk] || []), ...gv]))
+            : gv;
+        }
+      } else if (Array.isArray(v)) {
+        merged[k] = Array.from(new Set([...(latest[k] || []), ...v]));
+      } else {
+        merged[k] = v;
+      }
+    }
+  } catch { /* 磁盘文件损坏时退回整体覆盖 */ }
+  writeFileSync(f, JSON.stringify(merged, null, 2));
+};
+const ensureToday = (s) => { if (!s[today()]) s[today()] = { likes: [], follows: [] }; return s; };
 const shuffle = (a) => [...a].sort(() => Math.random() - 0.5);
 
 function pickComment() {
@@ -231,7 +254,7 @@ async function main() {
           if (await followOne(page, action.handle)) {
             follows += 1;
             state.growth.follows.push(action.handle);
-            state[today()].follows.push(action.handle); // 同步计入 engage 的当日总账
+            ensureToday(state); state[today()].follows.push(action.handle); // 同步计入 engage 的当日总账
             save(ENGAGE_FILE, state);
             console.log(`    ➕ 关注发帖人 @${action.handle}`);
           } else console.log(`    ⏭️ @${action.handle} 已关注/不可关`);
@@ -246,7 +269,7 @@ async function main() {
               if (await followOne(page, h)) {
                 follows += 1;
                 state.growth.follows.push(h);
-                state[today()].follows.push(h);
+                ensureToday(state); state[today()].follows.push(h);
                 save(ENGAGE_FILE, state);
                 console.log(`    ➕ 关注回复者 @${h}`);
               }
@@ -279,7 +302,7 @@ async function main() {
           await likeBtn.click();
           iLikes += 1;
           state.growth.interestLikes.push(p.url);
-          state[today()].likes.push(p.url);
+          ensureToday(state); state[today()].likes.push(p.url);
           save(ENGAGE_FILE, state);
           console.log(`  ❤️ 赞了 @${p.handle}: ${p.text.replace(/\n/g, ' ').slice(0, 36)}`);
         }
@@ -289,7 +312,7 @@ async function main() {
           iFollows += 1;
           state.growth.interestFollows.push(p.handle);
           state.growth.follows.push(p.handle);
-          state[today()].follows.push(p.handle);
+          ensureToday(state); state[today()].follows.push(p.handle);
           save(ENGAGE_FILE, state);
           console.log(`  ➕ 关注了 @${p.handle}`);
         }

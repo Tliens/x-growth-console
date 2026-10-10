@@ -14,7 +14,30 @@ const SEEDS = new Set(['gefei55','yihui_indie','indie_maker_fox','sectojoy','isn
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const today = () => new Date().toISOString().slice(0, 10);
 const load = (f) => (existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {});
-const save = (f, d) => writeFileSync(f, JSON.stringify(d, null, 2));
+const save = (f, d) => {
+  // 合并写：先读磁盘最新状态，数组按 key 去重合并，防止并发进程互相覆盖
+  let merged = d;
+  try {
+    const latest = existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {};
+    merged = { ...latest };
+    for (const [k, v] of Object.entries(d)) {
+      if (k === 'growth' && typeof v === 'object' && !Array.isArray(v)) {
+        merged.growth = merged.growth || {};
+        for (const [gk, gv] of Object.entries(v)) {
+          merged.growth[gk] = Array.isArray(gv)
+            ? Array.from(new Set([...(merged.growth[gk] || []), ...gv]))
+            : gv;
+        }
+      } else if (Array.isArray(v)) {
+        merged[k] = Array.from(new Set([...(latest[k] || []), ...v]));
+      } else {
+        merged[k] = v;
+      }
+    }
+  } catch { /* 磁盘文件损坏时退回整体覆盖 */ }
+  writeFileSync(f, JSON.stringify(merged, null, 2));
+};
+const ensureToday = (s) => { if (!s[today()]) s[today()] = { likes: [], follows: [] }; return s; };
 const shuffle = (a) => [...a].sort(() => Math.random() - 0.5);
 
 function engageState() {
@@ -74,7 +97,7 @@ async function main() {
         if ((await btn.count()) > 0) {
           await btn.click();
           likes += 1;
-          state[today()].likes.push(post.url);
+          ensureToday(state); state[today()].likes.push(post.url);
           save(ENGAGE_FILE, state);
           console.log(`❤️ [${likes}/${DAILY_LIKES}] 赞了 @${post.handle}: ${post.text.replace(/\n/g, ' ').slice(0, 40)}`);
         }
@@ -101,7 +124,7 @@ async function main() {
         if ((await btn.count()) > 0) {
           await btn.click();
           follows += 1;
-          state[today()].follows.push(c.handle);
+          ensureToday(state); state[today()].follows.push(c.handle);
           save(ENGAGE_FILE, state);
           console.log(`➕ [${follows}/${DAILY_FOLLOWS}] 关注了 @${c.handle}（${c.followersRaw || c.followers || c.src}，榜#${c.rank || '-'}）`);
         } else {
